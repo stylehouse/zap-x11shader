@@ -6,22 +6,32 @@
 
 Window find_nicotine_window(Display *display, Window root) {
   Atom net_client_list = XInternAtom(display, "_NET_CLIENT_LIST", False);
-  unsigned long *window_ids;
-  int window_count;
+  Atom actual_type_return;
+  int actual_format_return;
+  unsigned long nitems_return, bytes_after_return;
+  unsigned char *prop_return = NULL;
   Window window = None;
 
   // Get the list of client windows.
-  XGetWindowProperty(display, root, net_client_list, 0, 0, False, AnyPropertyType, &window_count, &window_ids);
+  XGetWindowProperty(display, root, net_client_list, 0, 0, False, AnyPropertyType,
+                     &actual_type_return, &actual_format_return, &nitems_return,
+                     &bytes_after_return, &prop_return);
 
-  // Iterate through the list of client windows and find the window named "Nicotine+".
+  Atom *window_ids = (Atom *)prop_return;
+  int window_count = nitems_return / (sizeof(Atom));
+
+  // Iterate through the list of client windows and find the window with a name starting with "Nicotine+".
   for (int i = 0; i < window_count; i++) {
-    Window cur_window = window_ids[i];
+    Window cur_window = (Window)window_ids[i];
     char *wm_name = XGetWMName(display, cur_window);
     if (wm_name && strncmp(wm_name, "Nicotine+", 9) == 0) {
       window = cur_window;
       break;
     }
   }
+
+  // Free the property return data.
+  XFree(prop_return);
 
   // If the window was not found, exit with an error.
   if (window == None) {
