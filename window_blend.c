@@ -4,6 +4,34 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+Window find_nicotine_window(Display *display, Window root) {
+  Atom net_client_list = XInternAtom(display, "_NET_CLIENT_LIST", False);
+  unsigned long *window_ids;
+  int window_count;
+  Window window = None;
+
+  // Get the list of client windows.
+  XGetWindowProperty(display, root, net_client_list, 0, 0, False, AnyPropertyType, &window_count, &window_ids);
+
+  // Iterate through the list of client windows and find the window named "Nicotine+".
+  for (int i = 0; i < window_count; i++) {
+    Window cur_window = window_ids[i];
+    char *wm_name = XGetWMName(display, cur_window);
+    if (wm_name && strncmp(wm_name, "Nicotine+", 9) == 0) {
+      window = cur_window;
+      break;
+    }
+  }
+
+  // If the window was not found, exit with an error.
+  if (window == None) {
+    fprintf(stderr, "Could not find window named \"%s\"\n", "Nicotine+");
+    exit(1);
+  }
+
+  return window;
+}
+
 int main(int argc, char *argv[]) {
   Display *display;
   Window root;
@@ -26,12 +54,7 @@ int main(int argc, char *argv[]) {
   root = RootWindow(display, DefaultScreen(display));
 
   // Find the window named "Nicotine+".
-  window_name = "Nicotine+";
-  window = XFindWindow(display, root, window_name);
-  if (window == NULL) {
-    fprintf(stderr, "Could not find window named \"%s\"\n", window_name);
-    return 1;
-  }
+  window = find_nicotine_window(display, root);
 
   // Get the image for the window.
   image = XGetImage(display, window, 0, 0, width, height, AllPlanes, ZPixmap);
