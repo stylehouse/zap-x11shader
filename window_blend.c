@@ -4,42 +4,53 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+// < maybe more doable in wayland
+//    from python xlib I was able to find the window...
+
+
+
 Window find_nicotine_window(Display *display, Window root) {
-  Atom net_client_list = XInternAtom(display, "_NET_CLIENT_LIST", False);
-  Atom actual_type_return;
-  int actual_format_return;
-  unsigned long nitems_return, bytes_after_return;
-  unsigned char *prop_return = NULL;
-  Window window = None;
+    Window *children;
+    Window parent;
+    unsigned int num_children;
+    int i;
 
-  // Get the list of client windows.
-  XGetWindowProperty(display, root, net_client_list, 0, 0, False, AnyPropertyType,
-                     &actual_type_return, &actual_format_return, &nitems_return,
-                     &bytes_after_return, &prop_return);
+    Atom net_client_list;
+    Atom actual_type;
+    int actual_format;
+    unsigned long nitems;
+    unsigned long bytes_after;
+    Window *wm_name_list;
 
-  Atom *window_ids = (Atom *)prop_return;
-  int window_count = nitems_return / (sizeof(Atom));
+    net_client_list = XInternAtom(display, "_NET_CLIENT_LIST", False);
+    XGetWindowProperty(display, root, net_client_list, 0, ~0, False, AnyPropertyType, &actual_type, &actual_format,
+                       &nitems, &bytes_after, (unsigned char **)&wm_name_list);
 
-  // Iterate through the list of client windows and find the window with a name starting with "Nicotine+".
-  for (int i = 0; i < window_count; i++) {
-    Window cur_window = (Window)window_ids[i];
-    char *wm_name = XGetWMName(display, cur_window);
-    if (wm_name && strncmp(wm_name, "Nicotine+", 9) == 0) {
-      window = cur_window;
-      break;
+    Atom wm_name_atom = XInternAtom(display, "WM_NAME", False);
+
+    for (i = 0; i < nitems; i++) {
+        XTextProperty wm_name_prop;
+        XGetTextProperty(display, wm_name_list[i], &wm_name_prop, wm_name_atom);
+
+        if (wm_name_prop.value && strncmp((char *)wm_name_prop.value, "Nicotine+", 9) == 0) {
+            return wm_name_list[i];
+        }
     }
-  }
 
-  // Free the property return data.
-  XFree(prop_return);
+    for (i = 0; i < nitems; i++) {
+        if (XQueryTree(display, wm_name_list[i], &root, &parent, &children, &num_children)) {
+            Window nicotine_window = find_nicotine_window(display, wm_name_list[i]);
+            if (nicotine_window != None) {
+                XFree(children);
+                XFree(wm_name_list);
+                return nicotine_window;
+            }
+            XFree(children);
+        }
+    }
 
-  // If the window was not found, exit with an error.
-  if (window == None) {
-    fprintf(stderr, "Could not find window named \"%s\"\n", "Nicotine+");
-    exit(1);
-  }
-
-  return window;
+    XFree(wm_name_list);
+    return None;
 }
 
 int main(int argc, char *argv[]) {
@@ -47,7 +58,6 @@ int main(int argc, char *argv[]) {
   Window root;
   Window window;
   char *window_name;
-  XImage *image;
   int width, height;
   int x, y;
   unsigned char *pixel;
@@ -66,8 +76,17 @@ int main(int argc, char *argv[]) {
   // Find the window named "Nicotine+".
   window = find_nicotine_window(display, root);
 
-  // Get the image for the window.
-  image = XGetImage(display, window, 0, 0, width, height, AllPlanes, ZPixmap);
+
+
+
+
+
+  // Create a graphics context (GC) for the window.
+  GC gc = XCreateGC(display, window, 0, NULL);
+
+  // Create an XImage structure to hold the pixel data.
+  XImage *image = XGetImage(display, root, 0, 0, width, height, AllPlanes, ZPixmap);
+
   if (image == NULL) {
     fprintf(stderr, "Failed to get image for window\n");
     return 1;
@@ -93,13 +112,12 @@ int main(int argc, char *argv[]) {
   }
   fclose(fp);
 
-  // Put the image back on the window.
-  XPutImage(display, window, root, image, 0, 0, 0, 0, width, height);
+  // Put the modified image onto the window.
+  XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
 
-  // Free the image.
-  XFree(image);
-
-  // Close the X display.
+  // Free resources and close the X display.
+  XFreeGC(display, gc);
+  XDestroyImage(image);
   XCloseDisplay(display);
 
   return 0;
