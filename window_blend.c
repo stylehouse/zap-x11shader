@@ -5,7 +5,7 @@
 #include <X11/Xutil.h>
 
 // < maybe more doable in wayland
-//    from python xlib I was able to find the window...
+//   XGetImage() bails: X Error of failed request:  BadMatch (invalid parameter attributes)
 
 
 
@@ -52,73 +52,76 @@ Window find_nicotine_window(Display *display, Window root) {
     XFree(wm_name_list);
     return None;
 }
-
 int main(int argc, char *argv[]) {
-  Display *display;
-  Window root;
-  Window window;
-  char *window_name;
-  int width, height;
-  int x, y;
-  unsigned char *pixel;
-  unsigned char t;
+    Display *display;
+    Window root;
+    Window window;
+    char *window_name;
+    int width, height;
+    int x, y;
+    unsigned char *pixel;
+    unsigned char t;
 
-  // Open the X display.
-  display = XOpenDisplay(NULL);
-  if (display == NULL) {
-    fprintf(stderr, "Failed to open X display\n");
-    return 1;
-  }
-
-  // Get the root window.
-  root = RootWindow(display, DefaultScreen(display));
-
-  // Find the window named "Nicotine+".
-  window = find_nicotine_window(display, root);
-
-
-
-
-
-
-  // Create a graphics context (GC) for the window.
-  GC gc = XCreateGC(display, window, 0, NULL);
-
-  // Create an XImage structure to hold the pixel data.
-  XImage *image = XGetImage(display, root, 0, 0, width, height, AllPlanes, ZPixmap);
-
-  if (image == NULL) {
-    fprintf(stderr, "Failed to get image for window\n");
-    return 1;
-  }
-
-  // Blend the image with the "boreo_desert.jpg" image.
-  FILE *fp = fopen("boreo_desert.jpg", "rb");
-  if (fp == NULL) {
-    fprintf(stderr, "Failed to open \"boreo_desert.jpg\"\n");
-    return 1;
-  }
-  for (y = 0; y < height; y++) {
-    for (x = 0; x < width; x++) {
-      t = fgetc(fp);
-      pixel = image->data + (y * image->width + x) * 4;
-      unsigned char r = pixel[0];
-      unsigned char g = pixel[1];
-      unsigned char b = pixel[2];
-      pixel[0] = r * t / 255;
-      pixel[1] = g * t / 255;
-      pixel[2] = b * t / 255;
+    // Open the X display.
+    display = XOpenDisplay(NULL);
+    if (display == NULL) {
+        fprintf(stderr, "Failed to open X display\n");
+        return 1;
     }
-  }
-  fclose(fp);
 
-  // Put the modified image onto the window.
-  XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
+    // Get the root window.
+    root = RootWindow(display, DefaultScreen(display));
 
-  // Free resources and close the X display.
-  XFreeGC(display, gc);
-  XDestroyImage(image);
-  XCloseDisplay(display);
+    // Find the window named "Nicotine+".
+    window = find_nicotine_window(display, root);
+    fprintf(stdout, "found nico\n");
 
-  return 0;
+    // Get the window attributes to obtain the width and height.
+    XWindowAttributes window_attr;
+    XGetWindowAttributes(display, window, &window_attr);
+    width = window_attr.width;
+    height = window_attr.height;
+
+    // Create a graphics context (GC) for the window.
+    GC gc = XCreateGC(display, window, 0, NULL);
+
+    // Create an XImage structure to hold the pixel data.
+    fprintf(stdout, "pre-XGetImage: %d x %d\n", width, height);
+    XImage *image = XGetImage(display, window, 0, 0, width, height, AllPlanes, ZPixmap);
+    fprintf(stdout, "post-XGetImage!\n");
+
+    if (image == NULL) {
+        fprintf(stderr, "Failed to get image for window\n");
+        return 1;
+    }
+
+    // Blend the image with the "boreo_desert.jpg" image.
+    FILE *fp = fopen("boreo_desert.jpg", "rb");
+    if (fp == NULL) {
+        fprintf(stderr, "Failed to open \"boreo_desert.jpg\"\n");
+        return 1;
+    }
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            t = fgetc(fp);
+            pixel = image->data + (y * image->bytes_per_line + x * image->bits_per_pixel / 8);
+            unsigned char r = pixel[0];
+            unsigned char g = pixel[1];
+            unsigned char b = pixel[2];
+            pixel[0] = r * t / 255;
+            pixel[1] = g * t / 255;
+            pixel[2] = b * t / 255;
+        }
+    }
+    fclose(fp);
+
+    // Put the modified image onto the window.
+    XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
+
+    // Free resources and close the X display.
+    XFreeGC(display, gc);
+    XDestroyImage(image);
+    XCloseDisplay(display);
+
+    return 0;
 }
