@@ -31,6 +31,9 @@ unsigned char* loadJPEG(const char* filename, int* width, int* height) {
     *height = cinfo.output_height;
     int numChannels = cinfo.num_components;
 
+    // < one channel will segfault
+    fprintf(stdout, "Jpeg channels: %d", numChannels);
+
     unsigned char* imageData = (unsigned char*)malloc((*width) * (*height) * numChannels);
     buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE, *width * numChannels, 1);
     row_stride = (*width) * numChannels;
@@ -72,7 +75,7 @@ unsigned long somekindaBlend(unsigned long sourcePixel, unsigned long destPixel,
     return (blendedRed << 16) | (blendedGreen << 8) | blendedBlue;
 }
 
-const char* testPixel = "\xaa\x55\xaa\x00";
+const char* testPixel = "\x22\x55\x11\x00";
 Window find_nicotine_window(Display *display, Window root) {
     Window *children;
     Window parent;
@@ -153,14 +156,39 @@ int main(int argc, char *argv[]) {
 
     // Load the "boreo_desert.jpg" image
     int jpgWidth, jpgHeight;
-    unsigned char* desertRaw = loadJPEG("boreo_desert.jpg", &jpgWidth, &jpgHeight);
+    unsigned char* desertRaw = loadJPEG("texture.jpg", &jpgWidth, &jpgHeight);
+    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
     if (desertRaw == NULL) {
         fprintf(stderr, "Failed to load image\n");
         return 1;
     }
+    // Create a temporary buffer for the image data in the appropriate format
+    fprintf(stdout,"tempBuffer...\n");
+    unsigned char* tempBuffer = (unsigned char*)malloc(jpgWidth * jpgHeight * 3); // Assuming 3 bytes per pixel (RGB)
+    fprintf(stdout,"tempBuffer!\n");
+
+    // Copy the pixel data from desertRaw to the temporary buffer
+    // !!! if this is set a little higher, this loop will segfault at y=381 x=694
+    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
+    for (int y = 0; y < jpgHeight; y++) {
+        // fprintf(stdout,"y: %d...\n",y);
+        for (int x = 0; x < jpgWidth; x++) {
+            //fprintf(stdout,"    x:%d",x);
+            unsigned char* srcPixel = desertRaw + (y * jpgWidth + x) * 3; // Assuming 3 bytes per pixel (RGB)
+            unsigned char* dstPixel = tempBuffer + (y * jpgWidth + x) * 3; // Assuming 3 bytes per pixel (RGB)
+
+            dstPixel[0] = srcPixel[0]; // Copy the red channel
+            dstPixel[1] = srcPixel[1]; // Copy the green channel
+            dstPixel[2] = srcPixel[2]; // Copy the blue channel
+        }
+    }
+
     // Create an XImage object for "boreo_desert.jpg" image
+    fprintf(stdout,"XCreateImage...\n");
+    // !!! Segmentation fault:
     XImage *desert = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen),
-                         ZPixmap, 0, (char*)desertRaw, jpgWidth, jpgHeight, 32, 0);
+                         ZPixmap, 0, (char*)tempBuffer, jpgWidth, jpgHeight, 32, 0);
+    fprintf(stdout,"XCreateImage!\n");
     if (desert == NULL) {
         fprintf(stderr, "Failed to XCreateImage\n");
         return 1;
@@ -179,7 +207,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to XGetImage for window\n");
         return 1;
     }
-    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
     
     // Perform alpha blending with the XImage
     for (unsigned int y = 0; y < height; y++) {
@@ -193,9 +220,18 @@ int main(int argc, char *argv[]) {
             // < segfaults:
             //unsigned long sourcePixel = XGetPixel(desert, x % jpgWidth, y % jpgHeight);
             // just use black:
-            unsigned long sourcePixel = *((unsigned long*)testPixel);
+            // unsigned long sourcePixel = *((unsigned long*)testPixel);
             
-            unsigned long destPixel = XGetPixel(image, x, y);
+            // unsigned long destPixel = XGetPixel(image, x, y);
+            // unsigned char alpha = 255;  // Set your desired alpha value
+
+            // unsigned long blendedPixel = somekindaBlend(destPixel, sourcePixel, alpha);
+            // XPutPixel(image, x, y, blendedPixel);
+            
+            // < try putting: sourcePixel = XGetPixel(image, x, y)
+            unsigned long sourcePixel = XGetPixel(image, x, y);
+            unsigned long destPixel = *((unsigned long*)testPixel);
+            //XGetPixel(desert, x % jpgWidth, y % jpgHeight);
             unsigned char alpha = 255;  // Set your desired alpha value
 
             unsigned long blendedPixel = somekindaBlend(destPixel, sourcePixel, alpha);
@@ -207,6 +243,7 @@ int main(int argc, char *argv[]) {
     XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
 
     // Free resources and close the X display.
+    free(tempBuffer);
     XFreeGC(display, gc);
     XDestroyImage(image);
     XCloseDisplay(display);
