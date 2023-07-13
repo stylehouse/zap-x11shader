@@ -3,12 +3,76 @@
 #include <string.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <jpeglib.h>
 
 // < maybe more doable in wayland
-//   XGetImage() bails: X Error of failed request:  BadMatch (invalid parameter attributes)
 
 
+// Function to load the JPEG image using libjpeg
+unsigned char* loadJPEG(const char* filename, int* width, int* height) {
+    struct jpeg_decompress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    FILE* infile;
+    JSAMPARRAY buffer;
+    int row_stride;
 
+    if ((infile = fopen(filename, "rb")) == NULL) {
+        fprintf(stderr, "Error opening JPEG file: %s\n", filename);
+        return NULL;
+    }
+
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_decompress(&cinfo);
+    jpeg_stdio_src(&cinfo, infile);
+    jpeg_read_header(&cinfo, TRUE);
+    jpeg_start_decompress(&cinfo);
+
+    *width = cinfo.output_width;
+    *height = cinfo.output_height;
+    int numChannels = cinfo.num_components;
+
+    unsigned char* imageData = (unsigned char*)malloc((*width) * (*height) * numChannels);
+    buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE, *width * numChannels, 1);
+    row_stride = (*width) * numChannels;
+
+    while (cinfo.output_scanline < cinfo.output_height) {
+        jpeg_read_scanlines(&cinfo, buffer, 1);
+        memcpy(imageData + (cinfo.output_scanline - 1) * row_stride, buffer[0], row_stride);
+    }
+
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+    fclose(infile);
+
+    return imageData;
+}
+
+
+unsigned char onechannel(unsigned char src, unsigned char dst) {
+    int brightness = src - 200;
+    if (brightness > 0) {
+        src = 0x00;
+    }
+    return src;
+}
+// Function to alpha blend two pixels
+unsigned long somekindaBlend(unsigned long sourcePixel, unsigned long destPixel, unsigned char alpha) {
+    unsigned char sourceRed = (sourcePixel & 0x00FF0000) >> 16;
+    unsigned char sourceGreen = (sourcePixel & 0x0000FF00) >> 8;
+    unsigned char sourceBlue = sourcePixel & 0x000000FF;
+
+    unsigned char destRed = (destPixel & 0x00FF0000) >> 16;
+    unsigned char destGreen = (destPixel & 0x0000FF00) >> 8;
+    unsigned char destBlue = destPixel & 0x000000FF;
+
+    unsigned char blendedRed = (sourceRed * alpha + destRed * (255 - alpha)) / 255;
+    unsigned char blendedGreen = (sourceGreen * alpha + destGreen * (255 - alpha)) / 255;
+    unsigned char blendedBlue = (sourceBlue * alpha + destBlue * (255 - alpha)) / 255;
+
+    return (blendedRed << 16) | (blendedGreen << 8) | blendedBlue;
+}
+
+const char* testPixel = "\xaa\x55\xaa\x00";
 Window find_nicotine_window(Display *display, Window root) {
     Window *children;
     Window parent;
@@ -52,13 +116,14 @@ Window find_nicotine_window(Display *display, Window root) {
     XFree(wm_name_list);
     return None;
 }
+
 int main(int argc, char *argv[]) {
     Display *display;
     Window root;
     Window window;
+    int screen;
     char *window_name;
     int width, height;
-    int x, y;
     unsigned char *pixel;
     unsigned char t;
 
@@ -85,36 +150,58 @@ int main(int argc, char *argv[]) {
     // Create a graphics context (GC) for the window.
     GC gc = XCreateGC(display, window, 0, NULL);
 
+
+    // Load the "boreo_desert.jpg" image
+    int jpgWidth, jpgHeight;
+    unsigned char* desertRaw = loadJPEG("boreo_desert.jpg", &jpgWidth, &jpgHeight);
+    if (desertRaw == NULL) {
+        fprintf(stderr, "Failed to load image\n");
+        return 1;
+    }
+    // Create an XImage object for "boreo_desert.jpg" image
+    XImage *desert = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen),
+                         ZPixmap, 0, (char*)desertRaw, jpgWidth, jpgHeight, 32, 0);
+    if (desert == NULL) {
+        fprintf(stderr, "Failed to XCreateImage\n");
+        return 1;
+    }
+
+
+
+
+    // < loop would be:
+
     // Create an XImage structure to hold the pixel data.
-    fprintf(stdout, "pre-XGetImage: %d x %d\n", width, height);
     XImage *image = XGetImage(display, window, 0, 0, width, height, AllPlanes, ZPixmap);
     fprintf(stdout, "post-XGetImage!\n");
 
     if (image == NULL) {
-        fprintf(stderr, "Failed to get image for window\n");
+        fprintf(stderr, "Failed to XGetImage for window\n");
         return 1;
     }
+    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
+    
+    // Perform alpha blending with the XImage
+    for (unsigned int y = 0; y < height; y++) {
+        // fprintf(stdout, "iter y=%d\n",y);
+        for (unsigned int x = 0; x < width; x++) {
+            // if (y == 595) fprintf(stdout, "    iter x=%d\n",x);
+            if (y == 595 && x == 1340) {
+                fprintf(stdout, "    to x=%d  y=%d\n",x % jpgWidth, y % jpgHeight);
+            }
 
-    // Blend the image with the "boreo_desert.jpg" image.
-    FILE *fp = fopen("boreo_desert.jpg", "rb");
-    if (fp == NULL) {
-        fprintf(stderr, "Failed to open \"boreo_desert.jpg\"\n");
-        return 1;
-    }
-    width = width / 2.4;
-    for (y = 0; y < height; y++) {
-        for (x = 0; x < width; x++) {
-            t = fgetc(fp);
-            pixel = image->data + (y * image->bytes_per_line + x * image->bits_per_pixel / 8);
-            unsigned char r = pixel[0];
-            unsigned char g = pixel[1];
-            unsigned char b = pixel[2];
-            pixel[0] = r * t / 255;
-            pixel[1] = g * t / 255;
-            pixel[2] = b * t / 255;
+            // < segfaults:
+            //unsigned long sourcePixel = XGetPixel(desert, x % jpgWidth, y % jpgHeight);
+            // just use black:
+            unsigned long sourcePixel = *((unsigned long*)testPixel);
+            
+            unsigned long destPixel = XGetPixel(image, x, y);
+            unsigned char alpha = 255;  // Set your desired alpha value
+
+            unsigned long blendedPixel = somekindaBlend(destPixel, sourcePixel, alpha);
+            XPutPixel(image, x, y, blendedPixel);
         }
     }
-    fclose(fp);
 
     // Put the modified image onto the window.
     XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
