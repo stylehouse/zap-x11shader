@@ -101,6 +101,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to open \"boreo_desert.jpg\"\n");
         return 1;
     }
+    width = width / 2.4;
     for (y = 0; y < height; y++) {
         for (x = 0; x < width; x++) {
             t = fgetc(fp);
