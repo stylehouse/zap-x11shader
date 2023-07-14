@@ -50,14 +50,6 @@ unsigned char* loadJPEG(const char* filename, int* width, int* height) {
     return imageData;
 }
 
-
-unsigned char onechannel(unsigned char src, unsigned char dst) {
-    int brightness = src - 200;
-    if (brightness > 0) {
-        src = 0x00;
-    }
-    return src;
-}
 // Function to alpha blend two pixels
 unsigned long somekindaBlend(unsigned long sourcePixel, unsigned long destPixel, unsigned char alpha) {
     unsigned char sourceRed = (sourcePixel & 0x00FF0000) >> 16;
@@ -126,9 +118,8 @@ int main(int argc, char *argv[]) {
     Window window;
     int screen;
     char *window_name;
-    int width, height;
-    unsigned char *pixel;
-    unsigned char t;
+    unsigned int width, height;
+
 
     // Open the X display.
     display = XOpenDisplay(NULL);
@@ -143,52 +134,35 @@ int main(int argc, char *argv[]) {
     // Find the window named "Nicotine+".
     window = find_nicotine_window(display, root);
     fprintf(stdout, "found nico\n");
-
     // Get the window attributes to obtain the width and height.
     XWindowAttributes window_attr;
     XGetWindowAttributes(display, window, &window_attr);
     width = window_attr.width;
     height = window_attr.height;
-
     // Create a graphics context (GC) for the window.
     GC gc = XCreateGC(display, window, 0, NULL);
 
 
-    // Load the "boreo_desert.jpg" image
-    int jpgWidth, jpgHeight;
-    unsigned char* desertRaw = loadJPEG("texture.jpg", &jpgWidth, &jpgHeight);
-    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
-    if (desertRaw == NULL) {
-        fprintf(stderr, "Failed to load image\n");
+
+
+    XImage *desert;
+    unsigned int jpgWidth, jpgHeight;
+    Pixmap bitmap;
+    int x_hot, y_hot;
+    // Create an XImage object for "boreo_desert.jpg" image
+    fprintf(stdout,"XReadBitmapFile...\n");
+
+    int result = XReadBitmapFile(display, window, "texture.xpm", &jpgWidth, &jpgHeight, &bitmap, &x_hot, &y_hot);
+    if (result != BitmapSuccess) {
+        printf("Failed to read bitmap file. %d\n",result);
         return 1;
     }
-    // Create a temporary buffer for the image data in the appropriate format
-    fprintf(stdout,"tempBuffer...\n");
-    unsigned char* tempBuffer = (unsigned char*)malloc(jpgWidth * jpgHeight * 3); // Assuming 3 bytes per pixel (RGB)
-    fprintf(stdout,"tempBuffer!\n");
 
-    // Copy the pixel data from desertRaw to the temporary buffer
-    // !!! if this is set a little higher, this loop will segfault at y=381 x=694
-    fprintf(stdout, " Jpeg geo: x=%d  y=%d\n", jpgWidth, jpgHeight);
-    for (int y = 0; y < jpgHeight; y++) {
-        // fprintf(stdout,"y: %d...\n",y);
-        for (int x = 0; x < jpgWidth; x++) {
-            //fprintf(stdout,"    x:%d",x);
-            unsigned char* srcPixel = desertRaw + (y * jpgWidth + x) * 3; // Assuming 3 bytes per pixel (RGB)
-            unsigned char* dstPixel = tempBuffer + (y * jpgWidth + x) * 3; // Assuming 3 bytes per pixel (RGB)
+    desert = XCreateImage(display, DefaultVisual(display, DefaultScreen(display)), 1, ZPixmap, 0, (char*)bitmap, width, height, 32, 0);
 
-            dstPixel[0] = srcPixel[0]; // Copy the red channel
-            dstPixel[1] = srcPixel[1]; // Copy the green channel
-            dstPixel[2] = srcPixel[2]; // Copy the blue channel
-        }
-    }
-
-    // Create an XImage object for "boreo_desert.jpg" image
-    fprintf(stdout,"XCreateImage...\n");
-    // !!! Segmentation fault:
-    XImage *desert = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen),
-                         ZPixmap, 0, (char*)tempBuffer, jpgWidth, jpgHeight, 32, 0);
-    fprintf(stdout,"XCreateImage!\n");
+    // XImage *desert = XCreateImage(display, DefaultVisual(display, screen), DefaultDepth(display, screen),
+    //                      ZPixmap, 0, (char*)tempBuffer, jpgWidth, jpgHeight, 32, 0);
+    fprintf(stdout,"XReadBitmapFile!\n");
     if (desert == NULL) {
         fprintf(stderr, "Failed to XCreateImage\n");
         return 1;
@@ -197,7 +171,7 @@ int main(int argc, char *argv[]) {
 
 
 
-    // < loop would be:
+    // < loop would be:     < also checking attr for width|height change?
 
     // Create an XImage structure to hold the pixel data.
     XImage *image = XGetImage(display, window, 0, 0, width, height, AllPlanes, ZPixmap);
@@ -243,9 +217,10 @@ int main(int argc, char *argv[]) {
     XPutImage(display, window, gc, image, 0, 0, 0, 0, width, height);
 
     // Free resources and close the X display.
-    free(tempBuffer);
-    XFreeGC(display, gc);
+    XFreePixmap(display, bitmap);
+    XDestroyImage(desert);
     XDestroyImage(image);
+    XFreeGC(display, gc);
     XCloseDisplay(display);
 
     return 0;
