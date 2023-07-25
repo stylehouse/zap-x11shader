@@ -4,7 +4,9 @@ supervisor running|monitoring commands and decking your field of windows with gl
 # description
 To shade an X window, possibly blending an image with it, while leaving the gui program in the window perfectly functional, for aesthetics.
 
-Results may be quite hectic.
+Results may be quite hectic:
+
+https://github.com/stylehouse/zap/assets/20439374/0800f95b-b321-46e8-a03d-103786e080b6
 
 # not yet doing the trick
 
